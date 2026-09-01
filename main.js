@@ -120,6 +120,7 @@ const state = {
   wireframe: false,
   roofVisible: true,
   explodeFactor: 0,
+  steeringAngle: 0, // degrees from -35 to +35
   currentView: 'hero',
 };
 
@@ -152,6 +153,15 @@ let explodeAnim = {
   duration: 0.65,
 };
 
+// Animation state for smooth steering centering
+let steerAnim = {
+  isAnimating: false,
+  startAngle: 0,
+  endAngle: 0,
+  progress: 0,
+  duration: 0.35,
+};
+
 // DOM Elements
 const container = document.getElementById('canvas-container');
 const loadingOverlay = document.getElementById('loading-overlay');
@@ -167,6 +177,10 @@ const toggleExplodeBtn = document.getElementById('toggle-explode');
 const toggleRoofBtn = document.getElementById('toggle-roof');
 const explodeRange = document.getElementById('explode-range');
 const explodeValue = document.getElementById('explode-value');
+const steeringWheelDisc = document.getElementById('steering-wheel-disc');
+const steeringRange = document.getElementById('steering-range');
+const steeringAngleBadge = document.getElementById('steering-angle-badge');
+const btnCenterSteer = document.getElementById('btn-center-steer');
 const btnBlueprint = document.getElementById('btn-blueprint');
 const btnScreenshot = document.getElementById('btn-screenshot');
 const btnReset = document.getElementById('btn-reset');
@@ -406,6 +420,7 @@ function selectVehicle(vehicleId) {
     updateSpecsModal();
     jeep.setHeadlights(state.headlights);
     jeep.setExplodeFactor(state.explodeFactor);
+    jeep.setSteeringAngle(THREE.MathUtils.degToRad(-state.steeringAngle));
     if (state.wireframe !== jeep.isWireframe) jeep.toggleWireframe();
     showToast('Switched to Jeep Wrangler Rubicon');
   } else {
@@ -429,6 +444,7 @@ function selectVehicle(vehicleId) {
           updateSpecsModal();
           activeModel.setHeadlights(state.headlights);
           activeModel.setExplodeFactor(state.explodeFactor);
+          activeModel.setSteeringAngle(THREE.MathUtils.degToRad(-state.steeringAngle));
           if (state.wireframe) activeModel.toggleWireframe();
 
           setTimeout(() => {
@@ -447,6 +463,7 @@ function selectVehicle(vehicleId) {
       updateSpecsModal();
       activeModel.setHeadlights(state.headlights);
       activeModel.setExplodeFactor(state.explodeFactor);
+      activeModel.setSteeringAngle(THREE.MathUtils.degToRad(-state.steeringAngle));
       if (state.wireframe !== activeModel.isWireframe) activeModel.toggleWireframe();
       showToast(`Switched to ${meta.name}`);
     }
@@ -576,6 +593,121 @@ function setExplodedView(factor, syncSlider = true) {
   }
 }
 
+// Steering Wheel Controller
+function setSteering(angleDeg, syncSlider = true) {
+  state.steeringAngle = THREE.MathUtils.clamp(angleDeg, -35, 35);
+  const angleRad = THREE.MathUtils.degToRad(-state.steeringAngle); // Negative because +deg is right turn, Three.js Y-up right is negative rotation
+
+  // Apply to physical 3D vehicle front wheels
+  getActiveVehicle().setSteeringAngle(angleRad);
+
+  // Rotate SVG Cockpit Steering Wheel Disc (visual multiplier 2.2x for realistic steering rotation)
+  const wheelVisualAngle = state.steeringAngle * 2.2;
+  if (steeringWheelDisc) {
+    steeringWheelDisc.style.transform = `rotate(${wheelVisualAngle}deg)`;
+  }
+
+  if (syncSlider && steeringRange) {
+    steeringRange.value = Math.round(state.steeringAngle);
+  }
+
+  if (steeringAngleBadge) {
+    const rounded = Math.round(state.steeringAngle);
+    if (rounded === 0) {
+      steeringAngleBadge.textContent = '0° CENTER';
+    } else if (rounded < 0) {
+      steeringAngleBadge.textContent = `${Math.abs(rounded)}° LEFT ◀`;
+    } else {
+      steeringAngleBadge.textContent = `▶ ${rounded}° RIGHT`;
+    }
+  }
+}
+
+// Mouse / Touch Dragging on Steering Wheel Disc
+let isDraggingSteer = false;
+let startSteerX = 0;
+let startSteerAngle = 0;
+
+if (steeringWheelDisc) {
+  steeringWheelDisc.addEventListener('mousedown', (e) => {
+    isDraggingSteer = true;
+    steerAnim.isAnimating = false;
+    startSteerX = e.clientX;
+    startSteerAngle = state.steeringAngle;
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isDraggingSteer) return;
+    const dx = e.clientX - startSteerX;
+    const newAngle = startSteerAngle + dx / 1.5;
+    setSteering(newAngle, true);
+  });
+
+  window.addEventListener('mouseup', () => {
+    isDraggingSteer = false;
+  });
+
+  // Touch device support
+  steeringWheelDisc.addEventListener('touchstart', (e) => {
+    if (e.touches.length > 0) {
+      isDraggingSteer = true;
+      steerAnim.isAnimating = false;
+      startSteerX = e.touches[0].clientX;
+      startSteerAngle = state.steeringAngle;
+    }
+  }, { passive: true });
+
+  window.addEventListener('touchmove', (e) => {
+    if (!isDraggingSteer || e.touches.length === 0) return;
+    const dx = e.touches[0].clientX - startSteerX;
+    const newAngle = startSteerAngle + dx / 1.5;
+    setSteering(newAngle, true);
+  }, { passive: true });
+
+  window.addEventListener('touchend', () => {
+    isDraggingSteer = false;
+  });
+}
+
+if (steeringRange) {
+  steeringRange.addEventListener('input', (e) => {
+    steerAnim.isAnimating = false;
+    setSteering(parseFloat(e.target.value), false);
+  });
+}
+
+if (btnCenterSteer) {
+  btnCenterSteer.addEventListener('click', () => {
+    steerAnim.startAngle = state.steeringAngle;
+    steerAnim.endAngle = 0;
+    steerAnim.progress = 0;
+    steerAnim.isAnimating = true;
+    showToast('Steering Centered (0°)');
+  });
+}
+
+// Keyboard controls [A] / [D] / Left / Right Arrow keys
+const keyState = { left: false, right: false };
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') {
+    keyState.left = true;
+    steerAnim.isAnimating = false;
+  } else if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') {
+    keyState.right = true;
+    steerAnim.isAnimating = false;
+  }
+});
+
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') {
+    keyState.left = false;
+  } else if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') {
+    keyState.right = false;
+  }
+});
+
 if (toggleExplodeBtn) {
   toggleExplodeBtn.addEventListener('click', () => {
     const target = state.explodeFactor > 0.5 ? 0 : 1;
@@ -624,6 +756,7 @@ btnReset.addEventListener('click', () => {
   if (state.headlights) toggleHeadlightsBtn.click();
   if (!state.roofVisible && state.currentVehicle === 'jeep') toggleRoofBtn.click();
   setExplodedView(0, true);
+  setSteering(0, true);
   showToast('Showroom View Reset');
 });
 
@@ -685,6 +818,22 @@ function animate() {
     const t = THREE.MathUtils.smoothstep(explodeAnim.progress, 0, 1);
     const currentFactor = THREE.MathUtils.lerp(explodeAnim.startVal, explodeAnim.endVal, t);
     setExplodedView(currentFactor, true);
+  }
+
+  // Steering smooth keyboard / centering animation
+  if (keyState.left) {
+    setSteering(state.steeringAngle - 70 * delta, true);
+  } else if (keyState.right) {
+    setSteering(state.steeringAngle + 70 * delta, true);
+  } else if (!isDraggingSteer && steerAnim.isAnimating) {
+    steerAnim.progress += delta / steerAnim.duration;
+    if (steerAnim.progress >= 1.0) {
+      steerAnim.progress = 1.0;
+      steerAnim.isAnimating = false;
+    }
+    const t = THREE.MathUtils.smoothstep(steerAnim.progress, 0, 1);
+    const cur = THREE.MathUtils.lerp(steerAnim.startAngle, steerAnim.endAngle, t);
+    setSteering(cur, true);
   }
 
   controls.update();

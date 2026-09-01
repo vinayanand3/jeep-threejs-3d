@@ -17,6 +17,11 @@ export class JeepModel {
     this.headlightLenses = [];
     this.originalMaterials = new Map();
 
+    // Steering pivots for front wheels
+    this.frontLeftPivot = null;
+    this.frontRightPivot = null;
+    this.steeringAngle = 0;
+
     // Material definitions
     this.carPaintMaterial = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color('#2C5E3B'), // Sarge Green default
@@ -69,6 +74,7 @@ export class JeepModel {
     this.isWireframe = false;
     this.isRoofVisible = true;
     this.headlightsActive = false;
+    this.explodeFactor = 0;
   }
 
   load(url, onProgress, onComplete, onError) {
@@ -115,7 +121,7 @@ export class JeepModel {
         model.position.y = -bbox.min.y;
         model.position.z = -center.z;
 
-        // Assign categorized PBR materials
+        // Assign categorized PBR materials & split steering wheels
         this.applyPBRMaterials();
 
         // Create dedicated illuminated headlight assemblies at exact socket coordinates
@@ -164,10 +170,11 @@ export class JeepModel {
         mesh.material = this.roofMaterial;
         this.roofMesh = mesh;
       }
-      // Mesh indices 0 and 4 are wheels / tires
+      // Mesh indices 0 and 4 are wheels / tires (Left side: 0, Right side: 4)
       else if (index === 0 || index === 4) {
         mesh.material = this.tireMaterial;
         this.wheelMeshes.push(mesh);
+        this.setupSteeringWheelMesh(mesh, index === 0 ? 'left' : 'right');
       }
       // Mesh index 9 is right headlight lens / emblem
       else if (index === 9) {
@@ -184,6 +191,98 @@ export class JeepModel {
         mesh.material = this.trimMaterial;
       }
     });
+  }
+
+  setupSteeringWheelMesh(mesh, side) {
+    // Split geometry into front wheel (Z > 0) and rear wheel (Z <= 0)
+    const geo = mesh.geometry;
+    const posAttr = geo.attributes.position;
+    const indexAttr = geo.index;
+    if (!posAttr) return;
+
+    const frontPos = [], frontNorm = [];
+    const rearPos = [], rearNorm = [];
+
+    const normAttr = geo.attributes.normal;
+
+    if (indexAttr) {
+      for (let i = 0; i < indexAttr.count; i += 3) {
+        const a = indexAttr.getX(i);
+        const b = indexAttr.getX(i + 1);
+        const c = indexAttr.getX(i + 2);
+
+        const za = posAttr.getZ(a);
+        const zb = posAttr.getZ(b);
+        const zc = posAttr.getZ(c);
+        const avgZ = (za + zb + zc) / 3;
+
+        const isFront = avgZ > 0;
+        const targetPos = isFront ? frontPos : rearPos;
+        const targetNorm = isFront ? frontNorm : rearNorm;
+
+        [a, b, c].forEach((idx) => {
+          targetPos.push(posAttr.getX(idx), posAttr.getY(idx), posAttr.getZ(idx));
+          if (normAttr) targetNorm.push(normAttr.getX(idx), normAttr.getY(idx), normAttr.getZ(idx));
+        });
+      }
+    }
+
+    if (frontPos.length > 0 && rearPos.length > 0) {
+      const parent = mesh.parent || this.model;
+
+      // 1. Create Rear Wheel Mesh (Static)
+      const rearGeo = new THREE.BufferGeometry();
+      rearGeo.setAttribute('position', new THREE.Float32BufferAttribute(rearPos, 3));
+      if (rearNorm.length) rearGeo.setAttribute('normal', new THREE.Float32BufferAttribute(rearNorm, 3));
+      rearGeo.computeVertexNormals();
+      const rearMesh = new THREE.Mesh(rearGeo, this.tireMaterial);
+      rearMesh.castShadow = true;
+      rearMesh.receiveShadow = true;
+      parent.add(rearMesh);
+
+      // 2. Create Front Wheel Mesh on Steering Pivot Group
+      const frontGeo = new THREE.BufferGeometry();
+      frontGeo.setAttribute('position', new THREE.Float32BufferAttribute(frontPos, 3));
+      if (frontNorm.length) frontGeo.setAttribute('normal', new THREE.Float32BufferAttribute(frontNorm, 3));
+      frontGeo.computeVertexNormals();
+
+      frontGeo.computeBoundingBox();
+      const frontCenter = new THREE.Vector3();
+      frontGeo.boundingBox.getCenter(frontCenter);
+
+      // Center geometry around (0,0,0) so it rotates cleanly on its kingpin
+      frontGeo.translate(-frontCenter.x, -frontCenter.y, -frontCenter.z);
+
+      const frontMesh = new THREE.Mesh(frontGeo, this.tireMaterial);
+      frontMesh.castShadow = true;
+      frontMesh.receiveShadow = true;
+
+      const pivot = new THREE.Group();
+      pivot.position.copy(frontCenter);
+      pivot.add(frontMesh);
+      parent.add(pivot);
+
+      if (side === 'left') {
+        this.frontLeftPivot = pivot;
+        this.frontLeftMesh = frontMesh;
+      } else {
+        this.frontRightPivot = pivot;
+        this.frontRightMesh = frontMesh;
+      }
+
+      // Hide the combined original mesh
+      mesh.visible = false;
+    }
+  }
+
+  setSteeringAngle(angleRad) {
+    this.steeringAngle = angleRad;
+    if (this.frontLeftPivot) {
+      this.frontLeftPivot.rotation.y = angleRad;
+    }
+    if (this.frontRightPivot) {
+      this.frontRightPivot.rotation.y = angleRad;
+    }
   }
 
   createHeadlightAssemblies() {
@@ -389,7 +488,16 @@ export class JeepModel {
       mesh.userData.explodeDelta = delta;
     });
 
-    // Also link custom headlight assemblies to front offset
+    // Also link custom pivots and headlight assemblies
+    if (this.frontLeftPivot) {
+      this.frontLeftPivot.userData.initialPosition = this.frontLeftPivot.position.clone();
+      this.frontLeftPivot.userData.explodeDelta = new THREE.Vector3(-1.35, 0, 0);
+    }
+    if (this.frontRightPivot) {
+      this.frontRightPivot.userData.initialPosition = this.frontRightPivot.position.clone();
+      this.frontRightPivot.userData.explodeDelta = new THREE.Vector3(1.35, 0, 0);
+    }
+
     this.headlightLenses.forEach((item) => {
       item.initialPosition = item.group.position.clone();
       item.explodeDelta = new THREE.Vector3(0, 0.1, 1.15);
@@ -403,6 +511,13 @@ export class JeepModel {
         mesh.position.copy(mesh.userData.initialPosition).addScaledVector(mesh.userData.explodeDelta, f);
       }
     });
+
+    if (this.frontLeftPivot?.userData.initialPosition) {
+      this.frontLeftPivot.position.copy(this.frontLeftPivot.userData.initialPosition).addScaledVector(this.frontLeftPivot.userData.explodeDelta, f);
+    }
+    if (this.frontRightPivot?.userData.initialPosition) {
+      this.frontRightPivot.position.copy(this.frontRightPivot.userData.initialPosition).addScaledVector(this.frontRightPivot.userData.explodeDelta, f);
+    }
 
     this.headlightLenses.forEach((item) => {
       if (item.initialPosition && item.explodeDelta) {

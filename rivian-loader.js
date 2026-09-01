@@ -126,6 +126,11 @@ export class RivianModel {
         this.model = model;
         this.isLoaded = true;
 
+        // Identify front wheels for interactive steering
+        this.frontLeftWheel = model.getObjectByName('Circle.001_20') || null;
+        this.frontRightWheel = model.getObjectByName('Circle_18') || null;
+        this.steeringAngle = 0;
+
         // Configure exploded assembly offsets
         this.setupExplodedOffsets();
 
@@ -342,5 +347,15 @@ export class RivianModel {
         mesh.position.copy(mesh.userData.initialPosition).addScaledVector(mesh.userData.explodeDelta, f);
       }
     });
+  }
+
+  setSteeringAngle(angleRad) {
+    this.steeringAngle = angleRad;
+    if (this.frontLeftWheel) {
+      this.frontLeftWheel.rotation.y = angleRad;
+    }
+    if (this.frontRightWheel) {
+      this.frontRightWheel.rotation.y = angleRad;
+    }
   }
 }
