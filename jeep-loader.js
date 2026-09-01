@@ -17,9 +17,11 @@ export class JeepModel {
     this.headlightLenses = [];
     this.originalMaterials = new Map();
 
-    // Steering pivots for front wheels
+    // Wheel assemblies and steering pivots
     this.frontLeftPivot = null;
     this.frontRightPivot = null;
+    this.rearLeftPivot = null;
+    this.rearRightPivot = null;
     this.steeringAngle = 0;
 
     // Material definitions
@@ -102,8 +104,8 @@ export class JeepModel {
         // Assign categorized PBR materials
         this.applyPBRMaterials();
 
-        // Completely isolate front wheels from CAD assemblies into dedicated steering pivots
-        this.extractAndSetupSteeringWheels(model);
+        // Remodel all 4 wheels (front & rear) with identical high-definition geometry and pivots
+        this.extractAndRemodelAllWheels(model);
 
         // Compute Bounding Box
         const bbox = new THREE.Box3().setFromObject(model);
@@ -173,7 +175,7 @@ export class JeepModel {
         mesh.material = this.roofMaterial;
         this.roofMesh = mesh;
       }
-      // Mesh indices 0 and 4 are wheels / tires (Left: 0, Right: 4)
+      // Mesh indices 0, 4, 3, 5 are tire / wheel related
       else if (index === 0 || index === 4 || index === 3 || index === 5) {
         mesh.material = this.tireMaterial;
         this.wheelMeshes.push(mesh);
@@ -195,7 +197,7 @@ export class JeepModel {
     });
   }
 
-  extractAndSetupSteeringWheels(model) {
+  extractAndRemodelAllWheels(model) {
     const flPos = [];
     const flNorm = [];
     const frPos = [];
@@ -204,6 +206,8 @@ export class JeepModel {
     // Exact geometric wheel center coordinates in CAD local space
     const FL_CENTER = new THREE.Vector3(-17.768, -14.776, 34.369);
     const FR_CENTER = new THREE.Vector3(17.768, -14.776, 34.369);
+    const RL_CENTER = new THREE.Vector3(-17.768, -14.776, -22.447);
+    const RR_CENTER = new THREE.Vector3(17.768, -14.776, -22.447);
 
     this.meshes.forEach((mesh) => {
       const geo = mesh.geometry;
@@ -231,17 +235,19 @@ export class JeepModel {
         const cy = (p0y + p1y + p2y) / 3;
         const cz = (p0z + p1z + p2z) / 3;
 
-        // Radial distance from wheel center axis in YZ plane
+        // Radial distance from wheel center axes in YZ plane
         const distFL = Math.hypot(cy - FL_CENTER.y, cz - FL_CENTER.z);
         const distFR = Math.hypot(cy - FR_CENTER.y, cz - FR_CENTER.z);
+        const distRL = Math.hypot(cy - RL_CENTER.y, cz - RL_CENTER.z);
+        const distRR = Math.hypot(cy - RR_CENTER.y, cz - RR_CENTER.z);
 
-        // Check if triangle belongs strictly to Front-Left Wheel (within wheel cylinder and tire width)
+        // Identify wheel cylinders
         const isFLWheel = distFL <= 11.2 && cx <= -15.0 && cx >= -20.6;
-
-        // Check if triangle belongs strictly to Front-Right Wheel (within wheel cylinder and tire width)
         const isFRWheel = distFR <= 11.2 && cx >= 15.0 && cx <= 20.6;
+        const isRLWheel = distRL <= 11.2 && cx <= -15.0 && cx >= -20.6;
+        const isRRWheel = distRR <= 11.2 && cx >= 15.0 && cx <= 20.6;
 
-        // Check if triangle belongs to Front-Left Wheel Assembly
+        // 1. Extract Front-Left Wheel Geometry
         if (isFLWheel) {
           flPos.push(p0x - FL_CENTER.x, p0y - FL_CENTER.y, p0z - FL_CENTER.z);
           flPos.push(p1x - FL_CENTER.x, p1y - FL_CENTER.y, p1z - FL_CENTER.z);
@@ -253,7 +259,7 @@ export class JeepModel {
             flNorm.push(normAttr.getX(i2), normAttr.getY(i2), normAttr.getZ(i2));
           }
         }
-        // Check if triangle belongs to Front-Right Wheel Assembly
+        // 2. Extract Front-Right Wheel Geometry
         else if (isFRWheel) {
           frPos.push(p0x - FR_CENTER.x, p0y - FR_CENTER.y, p0z - FR_CENTER.z);
           frPos.push(p1x - FR_CENTER.x, p1y - FR_CENTER.y, p1z - FR_CENTER.z);
@@ -265,7 +271,11 @@ export class JeepModel {
             frNorm.push(normAttr.getX(i2), normAttr.getY(i2), normAttr.getZ(i2));
           }
         }
-        // Retain in original static mesh (fenders, hood, chassis)
+        // 3. Discard old rear wheel triangles from CAD body (since we reconstruct them cleanly)
+        else if (isRLWheel || isRRWheel) {
+          // Cleared from static body
+        }
+        // 4. Retain in stationary body mesh (fenders, hood, chassis, spare tire carrier)
         else {
           remainingPos.push(p0x, p0y, p0z);
           remainingPos.push(p1x, p1y, p1z);
@@ -279,7 +289,7 @@ export class JeepModel {
         }
       }
 
-      // Rebuild the mesh geometry without front wheel triangles
+      // Rebuild the mesh geometry without wheel triangles
       if (remainingPos.length > 0) {
         const newGeo = new THREE.BufferGeometry();
         newGeo.setAttribute('position', new THREE.Float32BufferAttribute(remainingPos, 3));
@@ -295,7 +305,7 @@ export class JeepModel {
       }
     });
 
-    // 1. Build Front Left Wheel Mesh and Pivot Group
+    // 1. Build Front-Left & Rear-Left Wheel Assemblies (Identical High-Resolution Modeling)
     if (flPos.length > 0) {
       const flGeo = new THREE.BufferGeometry();
       flGeo.setAttribute('position', new THREE.Float32BufferAttribute(flPos, 3));
@@ -305,6 +315,7 @@ export class JeepModel {
         flGeo.computeVertexNormals();
       }
 
+      // Front Left Wheel
       const flMesh = new THREE.Mesh(flGeo, this.tireMaterial);
       flMesh.castShadow = true;
       flMesh.receiveShadow = true;
@@ -315,9 +326,21 @@ export class JeepModel {
       this.frontLeftPivot.add(flMesh);
       model.add(this.frontLeftPivot);
       this.meshes.push(flMesh);
+
+      // Rear Left Wheel (Identical Model)
+      const rlMesh = new THREE.Mesh(flGeo.clone(), this.tireMaterial);
+      rlMesh.castShadow = true;
+      rlMesh.receiveShadow = true;
+
+      this.rearLeftPivot = new THREE.Group();
+      this.rearLeftPivot.name = 'RearLeftWheelPivot';
+      this.rearLeftPivot.position.copy(RL_CENTER);
+      this.rearLeftPivot.add(rlMesh);
+      model.add(this.rearLeftPivot);
+      this.meshes.push(rlMesh);
     }
 
-    // 2. Build Front Right Wheel Mesh and Pivot Group
+    // 2. Build Front-Right & Rear-Right Wheel Assemblies (Identical High-Resolution Modeling)
     if (frPos.length > 0) {
       const frGeo = new THREE.BufferGeometry();
       frGeo.setAttribute('position', new THREE.Float32BufferAttribute(frPos, 3));
@@ -327,6 +350,7 @@ export class JeepModel {
         frGeo.computeVertexNormals();
       }
 
+      // Front Right Wheel
       const frMesh = new THREE.Mesh(frGeo, this.tireMaterial);
       frMesh.castShadow = true;
       frMesh.receiveShadow = true;
@@ -337,6 +361,18 @@ export class JeepModel {
       this.frontRightPivot.add(frMesh);
       model.add(this.frontRightPivot);
       this.meshes.push(frMesh);
+
+      // Rear Right Wheel (Identical Model)
+      const rrMesh = new THREE.Mesh(frGeo.clone(), this.tireMaterial);
+      rrMesh.castShadow = true;
+      rrMesh.receiveShadow = true;
+
+      this.rearRightPivot = new THREE.Group();
+      this.rearRightPivot.name = 'RearRightWheelPivot';
+      this.rearRightPivot.position.copy(RR_CENTER);
+      this.rearRightPivot.add(rrMesh);
+      model.add(this.rearRightPivot);
+      this.meshes.push(rrMesh);
     }
   }
 
@@ -510,14 +546,6 @@ export class JeepModel {
       else if (index === 2) {
         delta.set(0, 1.85, -0.2);
       }
-      // 0: Left wheels & suspension
-      else if (index === 0) {
-        delta.set(-1.35, 0, 0);
-      }
-      // 4: Right wheels & suspension
-      else if (index === 4) {
-        delta.set(1.35, 0, 0);
-      }
       // 6: Left rock rail / rear fender
       else if (index === 6) {
         delta.set(-0.7, 0.1, -0.3);
@@ -558,6 +586,14 @@ export class JeepModel {
       this.frontRightPivot.userData.initialPosition = this.frontRightPivot.position.clone();
       this.frontRightPivot.userData.explodeDelta = new THREE.Vector3(1.35, 0, 0);
     }
+    if (this.rearLeftPivot) {
+      this.rearLeftPivot.userData.initialPosition = this.rearLeftPivot.position.clone();
+      this.rearLeftPivot.userData.explodeDelta = new THREE.Vector3(-1.35, 0, 0);
+    }
+    if (this.rearRightPivot) {
+      this.rearRightPivot.userData.initialPosition = this.rearRightPivot.position.clone();
+      this.rearRightPivot.userData.explodeDelta = new THREE.Vector3(1.35, 0, 0);
+    }
 
     this.headlightLenses.forEach((item) => {
       item.initialPosition = item.group.position.clone();
@@ -578,6 +614,12 @@ export class JeepModel {
     }
     if (this.frontRightPivot?.userData.initialPosition) {
       this.frontRightPivot.position.copy(this.frontRightPivot.userData.initialPosition).addScaledVector(this.frontRightPivot.userData.explodeDelta, f);
+    }
+    if (this.rearLeftPivot?.userData.initialPosition) {
+      this.rearLeftPivot.position.copy(this.rearLeftPivot.userData.initialPosition).addScaledVector(this.rearLeftPivot.userData.explodeDelta, f);
+    }
+    if (this.rearRightPivot?.userData.initialPosition) {
+      this.rearRightPivot.position.copy(this.rearRightPivot.userData.initialPosition).addScaledVector(this.rearRightPivot.userData.explodeDelta, f);
     }
 
     this.headlightLenses.forEach((item) => {
