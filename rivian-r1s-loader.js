@@ -108,9 +108,11 @@ export class RivianR1SModel {
         this.model = model;
         this.isLoaded = true;
 
-        // Front wheels for interactive steering
-        this.frontWheel1 = model.getObjectByName('Cylinder.001_tyre_0') || null;
-        this.frontWheel2 = model.getObjectByName('Cylinder.005_tyre_0') || null;
+        // Front wheels for interactive steering with dedicated vertical axis pivots
+        const w1 = model.getObjectByName('Cylinder.001');
+        const w2 = model.getObjectByName('Cylinder.005');
+        this.frontRightPivot = this.setupSteeringPivot(w1);
+        this.frontLeftPivot = this.setupSteeringPivot(w2);
         this.steeringAngle = 0;
 
         // Configure exploded assembly offsets
@@ -316,13 +318,32 @@ export class RivianR1SModel {
     });
   }
 
+  setupSteeringPivot(wheelNode) {
+    if (!wheelNode || !wheelNode.parent) return null;
+    this.model.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(wheelNode);
+    const worldCenter = new THREE.Vector3();
+    box.getCenter(worldCenter);
+
+    const parent = wheelNode.parent;
+    const localCenter = parent.worldToLocal(worldCenter.clone());
+
+    const pivot = new THREE.Group();
+    pivot.name = `${wheelNode.name}_SteeringPivot`;
+    pivot.position.copy(localCenter);
+    parent.add(pivot);
+
+    pivot.attach(wheelNode);
+    return pivot;
+  }
+
   setSteeringAngle(angleRad) {
     this.steeringAngle = angleRad;
-    if (this.frontWheel1) {
-      this.frontWheel1.rotation.y = angleRad;
+    if (this.frontRightPivot) {
+      this.frontRightPivot.rotation.y = angleRad;
     }
-    if (this.frontWheel2) {
-      this.frontWheel2.rotation.y = angleRad;
+    if (this.frontLeftPivot) {
+      this.frontLeftPivot.rotation.y = angleRad;
     }
   }
 }
