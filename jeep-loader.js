@@ -231,8 +231,18 @@ export class JeepModel {
         const cy = (p0y + p1y + p2y) / 3;
         const cz = (p0z + p1z + p2z) / 3;
 
+        // Radial distance from wheel center axis in YZ plane
+        const distFL = Math.hypot(cy - FL_CENTER.y, cz - FL_CENTER.z);
+        const distFR = Math.hypot(cy - FR_CENTER.y, cz - FR_CENTER.z);
+
+        // Check if triangle belongs strictly to Front-Left Wheel (within wheel cylinder and tire width)
+        const isFLWheel = distFL <= 11.2 && cx <= -15.0 && cx >= -20.6;
+
+        // Check if triangle belongs strictly to Front-Right Wheel (within wheel cylinder and tire width)
+        const isFRWheel = distFR <= 11.2 && cx >= 15.0 && cx <= 20.6;
+
         // Check if triangle belongs to Front-Left Wheel Assembly
-        if (cx < -13.5 && cy < 0.0 && cz > 15.0) {
+        if (isFLWheel) {
           flPos.push(p0x - FL_CENTER.x, p0y - FL_CENTER.y, p0z - FL_CENTER.z);
           flPos.push(p1x - FL_CENTER.x, p1y - FL_CENTER.y, p1z - FL_CENTER.z);
           flPos.push(p2x - FL_CENTER.x, p2y - FL_CENTER.y, p2z - FL_CENTER.z);
@@ -244,7 +254,7 @@ export class JeepModel {
           }
         }
         // Check if triangle belongs to Front-Right Wheel Assembly
-        else if (cx > 13.5 && cy < 0.0 && cz > 15.0) {
+        else if (isFRWheel) {
           frPos.push(p0x - FR_CENTER.x, p0y - FR_CENTER.y, p0z - FR_CENTER.z);
           frPos.push(p1x - FR_CENTER.x, p1y - FR_CENTER.y, p1z - FR_CENTER.z);
           frPos.push(p2x - FR_CENTER.x, p2y - FR_CENTER.y, p2z - FR_CENTER.z);
@@ -255,7 +265,7 @@ export class JeepModel {
             frNorm.push(normAttr.getX(i2), normAttr.getY(i2), normAttr.getZ(i2));
           }
         }
-        // Retain in original static mesh
+        // Retain in original static mesh (fenders, hood, chassis)
         else {
           remainingPos.push(p0x, p0y, p0z);
           remainingPos.push(p1x, p1y, p1z);
