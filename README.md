@@ -4,6 +4,11 @@ An interactive 3D WebGL vehicle showroom and configurator built with **Three.js*
 
 ---
 
+### 🌐 Live Demo:
+👉 **[https://vinayanand3.github.io/jeep-threejs-3d/](https://vinayanand3.github.io/jeep-threejs-3d/)**
+
+---
+
 ## ✨ Featured Vehicles
 
 1. 🚙 **Jeep Wrangler Rubicon**
