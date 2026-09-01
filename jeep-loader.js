@@ -99,6 +99,12 @@ export class JeepModel {
           }
         });
 
+        // Assign categorized PBR materials
+        this.applyPBRMaterials();
+
+        // Completely isolate front wheels from CAD assemblies into dedicated steering pivots
+        this.extractAndSetupSteeringWheels(model);
+
         // Compute Bounding Box
         const bbox = new THREE.Box3().setFromObject(model);
         const size = new THREE.Vector3();
@@ -120,9 +126,6 @@ export class JeepModel {
         model.position.x = -center.x;
         model.position.y = -bbox.min.y;
         model.position.z = -center.z;
-
-        // Assign categorized PBR materials & split steering wheels
-        this.applyPBRMaterials();
 
         // Create dedicated illuminated headlight assemblies at exact socket coordinates
         this.createHeadlightAssemblies();
@@ -170,11 +173,10 @@ export class JeepModel {
         mesh.material = this.roofMaterial;
         this.roofMesh = mesh;
       }
-      // Mesh indices 0 and 4 are wheels / tires (Left side: 0, Right side: 4)
-      else if (index === 0 || index === 4) {
+      // Mesh indices 0 and 4 are wheels / tires (Left: 0, Right: 4)
+      else if (index === 0 || index === 4 || index === 3 || index === 5) {
         mesh.material = this.tireMaterial;
         this.wheelMeshes.push(mesh);
-        this.setupSteeringWheelMesh(mesh, index === 0 ? 'left' : 'right');
       }
       // Mesh index 9 is right headlight lens / emblem
       else if (index === 9) {
@@ -193,85 +195,138 @@ export class JeepModel {
     });
   }
 
-  setupSteeringWheelMesh(mesh, side) {
-    // Split geometry into front wheel (Z > 0) and rear wheel (Z <= 0)
-    const geo = mesh.geometry;
-    const posAttr = geo.attributes.position;
-    const indexAttr = geo.index;
-    if (!posAttr) return;
+  extractAndSetupSteeringWheels(model) {
+    const flPos = [];
+    const flNorm = [];
+    const frPos = [];
+    const frNorm = [];
 
-    const frontPos = [], frontNorm = [];
-    const rearPos = [], rearNorm = [];
+    // Exact geometric wheel center coordinates in CAD local space
+    const FL_CENTER = new THREE.Vector3(-17.768, -14.776, 34.369);
+    const FR_CENTER = new THREE.Vector3(17.768, -14.776, 34.369);
 
-    const normAttr = geo.attributes.normal;
+    this.meshes.forEach((mesh) => {
+      const geo = mesh.geometry;
+      if (!geo || !geo.attributes.position) return;
 
-    if (indexAttr) {
-      for (let i = 0; i < indexAttr.count; i += 3) {
-        const a = indexAttr.getX(i);
-        const b = indexAttr.getX(i + 1);
-        const c = indexAttr.getX(i + 2);
+      const posAttr = geo.attributes.position;
+      const normAttr = geo.attributes.normal;
+      const indexAttr = geo.index;
 
-        const za = posAttr.getZ(a);
-        const zb = posAttr.getZ(b);
-        const zc = posAttr.getZ(c);
-        const avgZ = (za + zb + zc) / 3;
+      const remainingPos = [];
+      const remainingNorm = [];
 
-        const isFront = avgZ > 0;
-        const targetPos = isFront ? frontPos : rearPos;
-        const targetNorm = isFront ? frontNorm : rearNorm;
+      const triangleCount = indexAttr ? indexAttr.count / 3 : posAttr.count / 3;
 
-        [a, b, c].forEach((idx) => {
-          targetPos.push(posAttr.getX(idx), posAttr.getY(idx), posAttr.getZ(idx));
-          if (normAttr) targetNorm.push(normAttr.getX(idx), normAttr.getY(idx), normAttr.getZ(idx));
-        });
+      for (let i = 0; i < triangleCount; i++) {
+        const i0 = indexAttr ? indexAttr.getX(i * 3) : i * 3;
+        const i1 = indexAttr ? indexAttr.getX(i * 3 + 1) : i * 3 + 1;
+        const i2 = indexAttr ? indexAttr.getX(i * 3 + 2) : i * 3 + 2;
+
+        const p0x = posAttr.getX(i0), p0y = posAttr.getY(i0), p0z = posAttr.getZ(i0);
+        const p1x = posAttr.getX(i1), p1y = posAttr.getY(i1), p1z = posAttr.getZ(i1);
+        const p2x = posAttr.getX(i2), p2y = posAttr.getY(i2), p2z = posAttr.getZ(i2);
+
+        const cx = (p0x + p1x + p2x) / 3;
+        const cy = (p0y + p1y + p2y) / 3;
+        const cz = (p0z + p1z + p2z) / 3;
+
+        // Check if triangle belongs to Front-Left Wheel Assembly
+        if (cx < -13.5 && cy < 0.0 && cz > 15.0) {
+          flPos.push(p0x - FL_CENTER.x, p0y - FL_CENTER.y, p0z - FL_CENTER.z);
+          flPos.push(p1x - FL_CENTER.x, p1y - FL_CENTER.y, p1z - FL_CENTER.z);
+          flPos.push(p2x - FL_CENTER.x, p2y - FL_CENTER.y, p2z - FL_CENTER.z);
+
+          if (normAttr) {
+            flNorm.push(normAttr.getX(i0), normAttr.getY(i0), normAttr.getZ(i0));
+            flNorm.push(normAttr.getX(i1), normAttr.getY(i1), normAttr.getZ(i1));
+            flNorm.push(normAttr.getX(i2), normAttr.getY(i2), normAttr.getZ(i2));
+          }
+        }
+        // Check if triangle belongs to Front-Right Wheel Assembly
+        else if (cx > 13.5 && cy < 0.0 && cz > 15.0) {
+          frPos.push(p0x - FR_CENTER.x, p0y - FR_CENTER.y, p0z - FR_CENTER.z);
+          frPos.push(p1x - FR_CENTER.x, p1y - FR_CENTER.y, p1z - FR_CENTER.z);
+          frPos.push(p2x - FR_CENTER.x, p2y - FR_CENTER.y, p2z - FR_CENTER.z);
+
+          if (normAttr) {
+            frNorm.push(normAttr.getX(i0), normAttr.getY(i0), normAttr.getZ(i0));
+            frNorm.push(normAttr.getX(i1), normAttr.getY(i1), normAttr.getZ(i1));
+            frNorm.push(normAttr.getX(i2), normAttr.getY(i2), normAttr.getZ(i2));
+          }
+        }
+        // Retain in original static mesh
+        else {
+          remainingPos.push(p0x, p0y, p0z);
+          remainingPos.push(p1x, p1y, p1z);
+          remainingPos.push(p2x, p2y, p2z);
+
+          if (normAttr) {
+            remainingNorm.push(normAttr.getX(i0), normAttr.getY(i0), normAttr.getZ(i0));
+            remainingNorm.push(normAttr.getX(i1), normAttr.getY(i1), normAttr.getZ(i1));
+            remainingNorm.push(normAttr.getX(i2), normAttr.getY(i2), normAttr.getZ(i2));
+          }
+        }
       }
+
+      // Rebuild the mesh geometry without front wheel triangles
+      if (remainingPos.length > 0) {
+        const newGeo = new THREE.BufferGeometry();
+        newGeo.setAttribute('position', new THREE.Float32BufferAttribute(remainingPos, 3));
+        if (remainingNorm.length) {
+          newGeo.setAttribute('normal', new THREE.Float32BufferAttribute(remainingNorm, 3));
+        } else {
+          newGeo.computeVertexNormals();
+        }
+        mesh.geometry.dispose();
+        mesh.geometry = newGeo;
+      } else {
+        mesh.visible = false;
+      }
+    });
+
+    // 1. Build Front Left Wheel Mesh and Pivot Group
+    if (flPos.length > 0) {
+      const flGeo = new THREE.BufferGeometry();
+      flGeo.setAttribute('position', new THREE.Float32BufferAttribute(flPos, 3));
+      if (flNorm.length) {
+        flGeo.setAttribute('normal', new THREE.Float32BufferAttribute(flNorm, 3));
+      } else {
+        flGeo.computeVertexNormals();
+      }
+
+      const flMesh = new THREE.Mesh(flGeo, this.tireMaterial);
+      flMesh.castShadow = true;
+      flMesh.receiveShadow = true;
+
+      this.frontLeftPivot = new THREE.Group();
+      this.frontLeftPivot.name = 'FrontLeftWheelPivot';
+      this.frontLeftPivot.position.copy(FL_CENTER);
+      this.frontLeftPivot.add(flMesh);
+      model.add(this.frontLeftPivot);
+      this.meshes.push(flMesh);
     }
 
-    if (frontPos.length > 0 && rearPos.length > 0) {
-      const parent = mesh.parent || this.model;
-
-      // 1. Create Rear Wheel Mesh (Static)
-      const rearGeo = new THREE.BufferGeometry();
-      rearGeo.setAttribute('position', new THREE.Float32BufferAttribute(rearPos, 3));
-      if (rearNorm.length) rearGeo.setAttribute('normal', new THREE.Float32BufferAttribute(rearNorm, 3));
-      rearGeo.computeVertexNormals();
-      const rearMesh = new THREE.Mesh(rearGeo, this.tireMaterial);
-      rearMesh.castShadow = true;
-      rearMesh.receiveShadow = true;
-      parent.add(rearMesh);
-
-      // 2. Create Front Wheel Mesh on Steering Pivot Group
-      const frontGeo = new THREE.BufferGeometry();
-      frontGeo.setAttribute('position', new THREE.Float32BufferAttribute(frontPos, 3));
-      if (frontNorm.length) frontGeo.setAttribute('normal', new THREE.Float32BufferAttribute(frontNorm, 3));
-      frontGeo.computeVertexNormals();
-
-      frontGeo.computeBoundingBox();
-      const frontCenter = new THREE.Vector3();
-      frontGeo.boundingBox.getCenter(frontCenter);
-
-      // Center geometry around (0,0,0) so it rotates cleanly on its kingpin
-      frontGeo.translate(-frontCenter.x, -frontCenter.y, -frontCenter.z);
-
-      const frontMesh = new THREE.Mesh(frontGeo, this.tireMaterial);
-      frontMesh.castShadow = true;
-      frontMesh.receiveShadow = true;
-
-      const pivot = new THREE.Group();
-      pivot.position.copy(frontCenter);
-      pivot.add(frontMesh);
-      parent.add(pivot);
-
-      if (side === 'left') {
-        this.frontLeftPivot = pivot;
-        this.frontLeftMesh = frontMesh;
+    // 2. Build Front Right Wheel Mesh and Pivot Group
+    if (frPos.length > 0) {
+      const frGeo = new THREE.BufferGeometry();
+      frGeo.setAttribute('position', new THREE.Float32BufferAttribute(frPos, 3));
+      if (frNorm.length) {
+        frGeo.setAttribute('normal', new THREE.Float32BufferAttribute(frNorm, 3));
       } else {
-        this.frontRightPivot = pivot;
-        this.frontRightMesh = frontMesh;
+        frGeo.computeVertexNormals();
       }
 
-      // Hide the combined original mesh
-      mesh.visible = false;
+      const frMesh = new THREE.Mesh(frGeo, this.tireMaterial);
+      frMesh.castShadow = true;
+      frMesh.receiveShadow = true;
+
+      this.frontRightPivot = new THREE.Group();
+      this.frontRightPivot.name = 'FrontRightWheelPivot';
+      this.frontRightPivot.position.copy(FR_CENTER);
+      this.frontRightPivot.add(frMesh);
+      model.add(this.frontRightPivot);
+      this.meshes.push(frMesh);
     }
   }
 
@@ -373,12 +428,10 @@ export class JeepModel {
     this.headlightsActive = enabled;
 
     if (enabled) {
-      // Model's native mesh headlight materials
       this.headlightLensMaterial.color.set('#ffffff');
       this.headlightLensMaterial.emissive.set('#fff8e7');
       this.headlightLensMaterial.emissiveIntensity = 4.0;
 
-      // Custom high-detail headlight lens assemblies
       this.headlightLenses.forEach((item) => {
         item.lensMat.color.set('#fffdf5');
         item.lensMat.emissive.set('#fff5db');
@@ -392,7 +445,6 @@ export class JeepModel {
         item.spriteMat.opacity = 0.85;
       });
     } else {
-      // Reset to dark off state
       this.headlightLensMaterial.color.set('#222831');
       this.headlightLensMaterial.emissive.set('#000000');
       this.headlightLensMaterial.emissiveIntensity = 0.0;
@@ -488,7 +540,6 @@ export class JeepModel {
       mesh.userData.explodeDelta = delta;
     });
 
-    // Also link custom pivots and headlight assemblies
     if (this.frontLeftPivot) {
       this.frontLeftPivot.userData.initialPosition = this.frontLeftPivot.position.clone();
       this.frontLeftPivot.userData.explodeDelta = new THREE.Vector3(-1.35, 0, 0);
