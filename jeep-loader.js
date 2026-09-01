@@ -204,10 +204,10 @@ export class JeepModel {
     const frNorm = [];
 
     // Exact geometric wheel center coordinates in CAD local space
-    const FL_CENTER = new THREE.Vector3(-17.768, -14.776, 34.369);
-    const FR_CENTER = new THREE.Vector3(17.768, -14.776, 34.369);
-    const RL_CENTER = new THREE.Vector3(-17.768, -14.776, -22.447);
-    const RR_CENTER = new THREE.Vector3(17.768, -14.776, -22.447);
+    const FL_CENTER = new THREE.Vector3(-17.7683, -14.6834, 34.3687);
+    const FR_CENTER = new THREE.Vector3(17.7683, -14.6834, 34.3687);
+    const RL_CENTER = new THREE.Vector3(-17.7683, -14.5107, -24.8797);
+    const RR_CENTER = new THREE.Vector3(17.7683, -14.5107, -24.8797);
 
     this.meshes.forEach((mesh) => {
       const geo = mesh.geometry;
