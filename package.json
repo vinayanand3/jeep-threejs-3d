@@ -1,0 +1,22 @@
+{
+  "name": "jeep-threejs-3d",
+  "version": "1.0.0",
+  "description": "Interactive Three.js 3D Studio & Configurator for Jeep Wrangler Rubicon",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "threejs",
+    "cad",
+    "step",
+    "gltf",
+    "glb",
+    "jeep",
+    "webgl",
+    "3d"
+  ],
+  "author": "",
+  "license": "MIT"
+}
