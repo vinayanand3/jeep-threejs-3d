@@ -174,9 +174,11 @@ const toggleHeadlightsBtn = document.getElementById('toggle-headlights');
 const toggleTurntableBtn = document.getElementById('toggle-turntable');
 const toggleWireframeBtn = document.getElementById('toggle-wireframe');
 const toggleExplodeBtn = document.getElementById('toggle-explode');
+const toggleSteeringDockBtn = document.getElementById('toggle-steering-dock');
 const toggleRoofBtn = document.getElementById('toggle-roof');
 const explodeRange = document.getElementById('explode-range');
 const explodeValue = document.getElementById('explode-value');
+const steeringDock = document.getElementById('steering-dock');
 const steeringWheelDisc = document.getElementById('steering-wheel-disc');
 const steeringRange = document.getElementById('steering-range');
 const steeringAngleBadge = document.getElementById('steering-angle-badge');
@@ -687,6 +689,23 @@ if (btnCenterSteer) {
   });
 }
 
+// Steering Dock Toggle Button
+if (toggleSteeringDockBtn && steeringDock) {
+  if (window.innerWidth <= 900) {
+    steeringDock.classList.add('collapsed');
+    toggleSteeringDockBtn.classList.remove('active');
+  } else {
+    toggleSteeringDockBtn.classList.add('active');
+  }
+
+  toggleSteeringDockBtn.addEventListener('click', () => {
+    steeringDock.classList.add('user-toggled');
+    const isCollapsed = steeringDock.classList.toggle('collapsed');
+    toggleSteeringDockBtn.classList.toggle('active', !isCollapsed);
+    showToast(!isCollapsed ? 'Steering Control Active' : 'Steering Dock Hidden');
+  });
+}
+
 // Keyboard controls [A] / [D] / Left / Right Arrow keys
 const keyState = { left: false, right: false };
 window.addEventListener('keydown', (e) => {
@@ -781,12 +800,25 @@ function showToast(msg) {
   }, 2200);
 }
 
-// Window Resize Handling
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+// Window Resize & Orientation Handling
+function onWindowResize() {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  camera.aspect = width / height;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(width, height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+  // Responsive default steering dock visibility
+  if (width <= 900 && !steeringDock.classList.contains('user-toggled')) {
+    steeringDock.classList.add('collapsed');
+    if (toggleSteeringDockBtn) toggleSteeringDockBtn.classList.remove('active');
+  }
+}
+
+window.addEventListener('resize', onWindowResize);
+window.addEventListener('orientationchange', () => {
+  setTimeout(onWindowResize, 150);
 });
 
 // Animation Clock & Loop
